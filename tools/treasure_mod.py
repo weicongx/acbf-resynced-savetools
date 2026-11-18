@@ -17,6 +17,8 @@ What a real dig changes (from before/after saves), and what this script does:
          "ever" list. Digging turns the owned map record into the reward record and
          adds the reward to the "ever" list; reales go to the reales quantity entries.
   sec23  counter 0e9fade4 (next to 5b6a6f41 = 0x2335c72bd7b) counts dug treasures.
+  sec42  codex: each map's entry is marked seen, found and completed (needs the "codex"
+         fields that treasure_db.py --defs adds).
 """
 import sys, os, json, glob, shutil, struct, random, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -264,6 +266,79 @@ def grant(inv, maps, rewards, reales, log, like=None):
         log.append(f'reales: {before} -> {before + reales}')
 
 
+# ---------------------------------------------------------------- sec42
+# Codex: array 88d00b34 of entries {8f1a0973 = u64 codex entry, 6fb2825d = list of states}.
+# States: 4d36c371 {531a26a9 = a8132e86, 46a419e0 = 1} (seen) and timestamped events
+# 282e8f8a {531a26a9 = event, 6252fdff, 8e6dea49 = unix time}. A treasure map's entry gets
+# event 7d430c0e when the map is picked up and 3f9a97b2 when its chest is dug.
+P_CODEX, F_CODEX_ID, F_CODEX_STATES = 0x88d00b34, 0x8f1a0973, 0x6fb2825d
+C_SEEN, C_EVENT, F_EVT, F_EVT_TIME = 0x4d36c371, 0x282e8f8a, 0x531a26a9, 0x8e6dea49
+EV_SEEN, EV_FOUND, EV_DONE = bytes.fromhex('a8132e86'), bytes.fromhex('7d430c0e'), bytes.fromhex('3f9a97b2')
+
+
+def codex_array(d):
+    arr = anvil.find_props(anvil.parse_section(d), P_CODEX)[0]
+    return arr, {u(val(d, kid(e, F_CODEX_ID))): e for e in arr.children}
+
+
+def codex_state(d, o):
+    return (o.cls, bytes(val(d, kid(o, F_EVT))))
+
+
+def set_codex(d, want, log):
+    """want: [(entry, list position)]. Every entry ends up seen, found and completed."""
+    arr, ents = codex_array(d)
+    tpl = {}
+    for e in arr.children:
+        for o in kid(e, F_CODEX_STATES).children:
+            k = codex_state(d, o)
+            if k[0] == C_SEEN and k[1] == EV_SEEN or k[0] == C_EVENT:
+                tpl.setdefault(k[0], o)
+    if C_SEEN not in tpl or C_EVENT not in tpl:
+        raise SystemExit('sec42: no codex state to copy')
+    now = struct.pack('<I', int(time.time()))
+
+    def state(cls, ev):
+        o = tpl[cls]
+        b = bytearray(d[o.start:o.end])
+        if cls == C_EVENT:
+            setval(b, o.start, kid(o, F_EVT), ev)
+            setval(b, o.start, kid(o, F_EVT_TIME), now)
+        return bytes(b)
+    seen, found, done = state(C_SEEN, EV_SEEN), state(C_EVENT, EV_FOUND), state(C_EVENT, EV_DONE)
+    pos = dict(want)
+    added = updated = 0
+    for ent, p in sorted(want, key=lambda x: x[1]):
+        arr, ents = codex_array(d)
+        if ent not in ents:
+            # keep the list order: after the nearest earlier entry, else before the nearest later one
+            here = sorted((pos[k], e) for k, e in ents.items() if k in pos)
+            before = [e for q, e in here if q < p]
+            after = [e for q, e in here if q > p]
+            at = before[-1].end if before else after[0].start if after else arr.end
+            src = arr.children[0]
+            anvil.splice(d, arr, at, bytes(d[src.start:src.end]), 1)
+            arr, ents = codex_array(d)
+            e = next(e for e in arr.children if e.start == at)
+            idp = kid(e, F_CODEX_ID)
+            d[idp.start + 17:idp.end] = struct.pack('<Q', ent)
+            st = kid(e, F_CODEX_STATES)
+            anvil.replace(d, st, st.children[0].start, st.children[-1].end, seen + found + done,
+                          3 - len(st.children))
+            added += 1
+            continue
+        e = ents[ent]
+        st = kid(e, F_CODEX_STATES)
+        have = {codex_state(d, o) for o in st.children}
+        missing = [b for k, b in (((C_SEEN, EV_SEEN), seen), ((C_EVENT, EV_FOUND), found),
+                                  ((C_EVENT, EV_DONE), done)) if k not in have]
+        if missing:
+            anvil.splice(d, st, st.end, b''.join(missing), len(missing))
+            updated += 1
+    log.append(f'sec42 codex: {added} entries added, {updated} updated, '
+               f'{len(want) - added - updated} already complete')
+
+
 # ---------------------------------------------------------------- sec23
 def set_treasure_stat(d, n):
     r = anvil.parse_section(d)
@@ -327,7 +402,14 @@ def main():
     old = set_treasure_stat(d23, len(maps))
     log.append(f'sec23 treasure counter: {old} -> {max(old, len(maps))}')
 
-    for n, d in ((10, d10), (17, d17), (23, d23)):
+    d42 = bytearray(open(sec_path(out, 42), 'rb').read())
+    codex = [(int(t['codex'], 16), t['codex_pos']) for t in T if t.get('codex')]
+    if codex:
+        set_codex(d42, codex, log)
+    else:
+        log.append('sec42 codex: skipped (treasure.json has no codex entries; build it with --defs)')
+
+    for n, d in ((10, d10), (17, d17), (23, d23), (42, d42)):
         r = anvil.parse_section(d)
         assert r.end == len(d), f'sec{n} does not re-parse'
         if not dry:

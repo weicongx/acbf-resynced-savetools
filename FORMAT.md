@@ -94,9 +94,14 @@ the object tree. Property hashes below are `u32` values as they appear in the da
 | sec10 object `3a905dd6` | Ship inventory: `ba66ca99` item records, `1d67d592` quantity entries, `7de2139d` equipped slots |
 | sec17 `72b4497b` | Looted set: chest handle (sorted by `u64`) plus an index into list `5073cb67`, which holds a 189-byte loot record |
 | sec23 `0e9fade4` | Count of dug treasures (next to `5b6a6f41`) |
+| sec42 `88d00b34` | Codex: entries `{8f1a0973 = u64 codex entry, 6fb2825d = states}`. States are `4d36c371` (seen flag `a8132e86`) and timestamped events `282e8f8a {531a26a9 = event, 8e6dea49 = unix time}` |
 
 - A map that is carried has a record in both the "owned" and "ever" lists; a finished map is only in "ever".
   Digging turns the owned map record into the reward record and adds the reward to "ever".
+- A treasure map's codex entry gets event `7d430c0e` when the map is picked up and `3f9a97b2` when its chest is dug.
+  Entries that were never found are absent. In the game data each codex entry (class `854eb936`) is a small rule
+  graph whose "found" rule tests `efdfe312` = the map item; the codex "Maps" list (a run of `01 <u64 entry>`)
+  names all 30 treasure entries in display order, and the save keeps them in that order.
 - Ship parts (sails, wheels, crew outfits) only show in game when they are in the ship inventory, not the player lists.
 - Item records come in three sizes (305, 377 and 434 bytes) depending on the item's category in the game data;
   new records are cloned from an existing item of the same kind.

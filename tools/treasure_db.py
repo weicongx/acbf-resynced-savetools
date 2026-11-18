@@ -12,8 +12,11 @@ Links, as found in the data:
                    bundle props are tagged with the 6-byte owner id (bundle << 4 | bit 47):
                      b48f2e3b 01 <u32 quantity>, optionally followed by 333747b5 01 <u64 item>
                      (a quantity with no item is reales)
+  definitions block (optional, --defs): codex entries, class 854eb936, each a small rule graph
+                   whose "discovered" rule tests efdfe312 = the map item. The codex "Maps" list is
+                   a run of  01 <u64 entry>  items naming every treasure entry in display order.
 
-usage: treasure_db.py <reward_block.bin> <world_dir> [<world_dir> ...]  > treasure.json
+usage: treasure_db.py <reward_block.bin> <world_dir> [<world_dir> ...] [--defs=<defs_block.bin>]  > treasure.json
 """
 import json, re, struct, sys, glob, os
 
@@ -61,11 +64,43 @@ def bundle(rd, b):
     return out
 
 
+CODEX_CLS = bytes.fromhex('36b94e85')
+
+
+def codex_entries(dd, maps):
+    """map item -> (codex entry id, position in the codex Maps list)"""
+    owner = {}
+    for mp in maps:
+        for m in re.finditer(re.escape(bytes.fromhex('efdfe3120000') + struct.pack('<Q', mp)), dd):
+            o = dd.rfind(CODEX_CLS, 0, m.start())
+            owner.setdefault(mp, q(dd, o - 8))
+    # the list: a run of 01 <u64> items containing the entries
+    order = []
+    if owner:
+        first = next(iter(owner.values()))
+        for m in re.finditer(re.escape(b'' + struct.pack('<Q', first)), dd):
+            p = m.start()
+            while p >= 9 and dd[p - 9] == 1:
+                p -= 9
+            run = []
+            while p + 9 <= len(dd) and dd[p] == 1:
+                run.append(q(dd, p + 1))
+                p += 9
+            if set(owner.values()) <= set(run):
+                order = run
+                break
+    return {mp: (e, order.index(e) if e in order else None) for mp, e in owner.items()}
+
+
 def main():
-    rd = open(sys.argv[1], 'rb').read()
+    opts = [x for x in sys.argv[1:] if x.startswith('--')]
+    args = [x for x in sys.argv[1:] if not x.startswith('--')]
+    defs = next((x[7:] for x in opts if x.startswith('--defs=')), None)
+    rd = open(args[0], 'rb').read()
     table = trigger_table(rd)
+    codex = codex_entries(open(defs, 'rb').read(), MAPS) if defs else {}
     spots = {}
-    for d in sys.argv[2:]:
+    for d in args[1:]:
         for f in sorted(glob.glob(os.path.join(d, '*.bin'))):
             wd = open(f, 'rb').read()
             if b'CIN - Buried Chest' not in wd:
@@ -89,6 +124,9 @@ def main():
         out.append({'map': hex(mp), 'chests': sorted(hex(c) for c in s['chests']),
                     'bundles': {hex(b): bundle(rd, b) for b in sorted(s['bundles'])},
                     'blocks': sorted(s['blocks'])})
+        if mp in codex:
+            out[-1]['codex'] = hex(codex[mp][0])
+            out[-1]['codex_pos'] = codex[mp][1]
     json.dump(out, sys.stdout, indent=1)
 
 

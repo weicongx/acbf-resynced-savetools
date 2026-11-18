@@ -8,7 +8,8 @@ See [FORMAT.md](FORMAT.md) for the reverse-engineered format.
 
 - Decrypt, decompress, recompress and re-checksum: done. Rebuilt saves load in game.
 - Treasure maps: done. `treasure_mod.py` completes the 23 buried-chest maps and the 5 restored maps:
-  rewards granted (ship parts go to the ship's inventory), chests marked dug, maps finished, counter updated.
+  rewards granted (ship parts go to the ship's inventory), chests marked dug, maps finished, counter updated,
+  codex entries marked found and completed.
   Verified in game.
 - Not handled: Blackbeard's Treasure (quest-driven) and the Map of Shipwreck (underwater chest; its chest
   and reward were not found in the game data).
@@ -51,7 +52,9 @@ tools/ooztool.exe scan <file.forge> 43494e202d20427572696564204368657374 work/fo
 
 # 2. join them into a map -> chests -> reward bundles table. Dig spots are spread over several
 #    .forge files: scan each and pass every world dump folder; a map with no dig spot found is marked "missing"
-python tools/treasure_db.py work/forge/rewards/<block>.bin work/forge/world > work/forge/treasure.json
+#    --defs adds each map's codex entry; pass the definitions block that contains the codex entries
+#    (class 854eb936, found the same way by scanning for a map item ID)
+python tools/treasure_db.py work/forge/rewards/<block>.bin work/forge/world --defs=work/forge/defs/<block>.bin > work/forge/treasure.json
 
 # 3. apply to an unpacked save, then repack it as above
 python tools/treasure_mod.py work/ManualSave06 work/forge/treasure.json work/Edited --dry
@@ -79,7 +82,7 @@ Always edit a copy and load it from a spare slot. Never overwrite your only save
 | `tools/diff2.py` | Resynchronising byte diff of one section that changed size |
 | `tools/anvil.py` | Parser and editor for the object tree inside a section (keeps every size field consistent) |
 | `tools/treasure_db.py` | Builds the treasure-map table (maps, chests, reward bundles) from dumped game-data blocks |
-| `tools/treasure_mod.py` | Applies the table to a save: rewards, dug chests, finished maps, treasure counter |
+| `tools/treasure_mod.py` | Applies the table to a save: rewards, dug chests, finished maps, treasure counter, codex |
 | `tools/crcsolve.py` | Detects CRCs with unknown init/xorout across several files (GF(2) solve) |
 | `tools/crcparams.py` | Solves and verifies the save's checksum constants |
 | `tools/hashes.py` | Reference hash implementations used during the search |
