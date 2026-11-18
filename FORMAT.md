@@ -75,7 +75,32 @@ Notes:
 The largest sections (by decompressed size) are sec11 (3.7 MB), sec33 (707 KB), sec00 (627 KB), sec10 (493 KB) and sec09 (211 KB).
 sec36 contains the strings `PlayerLevel` and DLC ids.
 
-## Open work
+## Save time
 
-Locating treasure-map state ("collected", "completed") and rewards. Plan: diff before/after saves around picking up a map
-and digging up its chest (`tools/diff.py`), then find the full list of map and reward IDs.
+sec00 offset `0x2b` is the save time as a `u32` unix timestamp. Copying a save to another slot without changing it
+gives two entries with the same time, and the load menu treats them as one save, so stamp edited copies with a new time.
+
+## Treasure-map state
+
+Found with before/after saves around digging up chests (`tools/diff.py`, `tools/diff2.py`); `tools/anvil.py` parses
+the object tree. Property hashes below are `u32` values as they appear in the data.
+
+| Where | What |
+|---|---|
+| sec10 `5cab0626` | Player items owned now (one record per item instance) |
+| sec10 `9e3b0a59` | Player items ever acquired |
+| sec10 `0dc15c5d` / `51ffa18a` | Quantity entries for the two lists above, keyed by instance ID |
+| sec10 `b1d8f7de` | Player equipped slots |
+| sec10 object `3a905dd6` | Ship inventory: `ba66ca99` item records, `1d67d592` quantity entries, `7de2139d` equipped slots |
+| sec17 `72b4497b` | Looted set: chest handle (sorted by `u64`) plus an index into list `5073cb67`, which holds a 189-byte loot record |
+| sec23 `0e9fade4` | Count of dug treasures (next to `5b6a6f41`) |
+
+- A map that is carried has a record in both the "owned" and "ever" lists; a finished map is only in "ever".
+  Digging turns the owned map record into the reward record and adds the reward to "ever".
+- Ship parts (sails, wheels, crew outfits) only show in game when they are in the ship inventory, not the player lists.
+- Item records come in three sizes (305, 377 and 434 bytes) depending on the item's category in the game data;
+  new records are cloned from an existing item of the same kind.
+- Reward bundles in the game data: entries `<u64 trigger> cbf9a762 01 <u32 n> <n bytes> 01 <u64 bundle>`; bundle
+  properties are tagged with the 6-byte owner ID and hold a quantity (`b48f2e3b`) and optionally an item (`333747b5`).
+  A quantity with no item is reales. Dig spots are world objects named `CIN - Buried Chest` with the required map in
+  `efdfe312` and the chest entity in `e34a2064`.
