@@ -1,0 +1,10 @@
+# Third-party proprietary Oodle DLL (copied from another game's install) - do not commit
+tools/oo2core_*.dll
+# Build outputs
+tools/ooztool.exe
+ooztool/target/
+# Personal save files and unpacked working data
+save_backup_*/
+work/
+*.save
+__pycache__/
